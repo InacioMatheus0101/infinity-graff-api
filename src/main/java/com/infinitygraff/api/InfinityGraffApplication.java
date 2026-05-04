@@ -2,6 +2,9 @@ package com.infinitygraff.api;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+
+import java.util.TimeZone;
 
 /**
  * Ponto de entrada da INFINITY GRAFF API.
@@ -10,15 +13,16 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * autenticação JWT, controle de acesso por perfil,
  * auditoria e gestão de usuários.
  *
- * <p>Requisito de timezone: a JVM deve iniciar com TZ=UTC
+ * <p>Requisito de timezone: a JVM deve iniciar em UTC
  * para garantir consistência de todos os timestamps do sistema.
- * Configurar via variável de ambiente TZ=UTC ou argumento -Duser.timezone=UTC.
  */
 
 @SpringBootApplication
+@ConfigurationPropertiesScan
 public class InfinityGraffApplication {
 
     public static void main(String[] args) {
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
         SpringApplication.run(InfinityGraffApplication.class, args);
     }
 }
