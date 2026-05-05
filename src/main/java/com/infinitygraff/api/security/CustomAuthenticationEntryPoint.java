@@ -20,11 +20,11 @@ import java.util.Map;
 /**
  * Handler responsável por respostas 401 Unauthorized.
  *
- * Usado quando a requisição não possui autenticação válida:
- * - token ausente;
- * - token inválido;
- * - token expirado;
- * - credenciais inválidas.
+ * Usado quando a requisição não possui autenticação válida no backend:
+ * - token Supabase ausente;
+ * - token Supabase inválido;
+ * - token Supabase expirado;
+ * - usuário autenticado no Supabase, mas sem perfil interno ativo no backend.
  *
  * Nesta etapa, o JSON é montado manualmente porque ErrorResponse
  * será padronizado na etapa de tratamento global de erros.

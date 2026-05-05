@@ -1,5 +1,6 @@
 package com.infinitygraff.api.security;
 
+import com.infinitygraff.api.usuario.model.Usuario;
 import com.infinitygraff.api.usuario.repository.UsuarioRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -9,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
@@ -16,21 +18,22 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.UUID;
 
 /**
- * Filtro de autenticação JWT executado uma vez por requisição.
+ * Filtro de autenticação executado uma vez por requisição.
  *
  * Fluxo:
  * 1. Extrai o Bearer token do header Authorization.
- * 2. Valida assinatura, issuer, tipo e expiração via JwtService.
- * 3. Extrai o UUID do usuário do subject do token.
- * 4. Carrega o usuário do banco.
+ * 2. Valida o token emitido pelo Supabase Auth.
+ * 3. Extrai o UUID do usuário a partir do subject do token.
+ * 4. Busca o perfil interno na tabela usuarios.
  * 5. Verifica se o usuário está ativo e não deletado.
- * 6. Registra a autenticação no SecurityContextHolder.
+ * 6. Registra a autenticação no SecurityContextHolder com as roles internas do sistema.
  *
- * Se qualquer etapa falhar, a requisição continua sem autenticação.
- * O SecurityConfig decide se o endpoint exige autenticação.
+ * O Supabase Auth autentica a identidade.
+ * O backend valida se esse usuário pode acessar o marketplace.
  */
 @Slf4j
 @Component
@@ -40,7 +43,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String PREFIXO_BEARER = "Bearer ";
 
-    private final JwtService jwtService;
+    private final SupabaseJwtService supabaseJwtService;
     private final UsuarioRepository usuarioRepository;
 
     @Override
@@ -57,51 +60,66 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        if (!jwtService.isTokenValido(token)) {
-            log.debug("Token JWT inválido ou expirado para requisição {} {}", request.getMethod(), request.getRequestURI());
+        if (!supabaseJwtService.isTokenValido(token)) {
+            log.debug(
+                    "Token Supabase inválido ou expirado para requisição {} {}",
+                    request.getMethod(),
+                    request.getRequestURI()
+            );
+
+            SecurityContextHolder.clearContext();
             filterChain.doFilter(request, response);
             return;
         }
 
-        autenticar(token, request);
+        autenticarUsuarioInterno(token, request);
 
         filterChain.doFilter(request, response);
     }
 
-    private void autenticar(String token, HttpServletRequest request) {
+    private void autenticarUsuarioInterno(String token, HttpServletRequest request) {
         if (SecurityContextHolder.getContext().getAuthentication() != null) {
             return;
         }
 
         try {
-            UUID usuarioId = jwtService.extrairUsuarioId(token);
+            UUID usuarioId = supabaseJwtService.extrairUsuarioId(token);
 
-            usuarioRepository.findById(usuarioId).ifPresent(usuario -> {
-                if (!usuario.isEnabled() || !usuario.isAccountNonLocked()) {
-                    log.debug("Usuário {} inativo, bloqueado ou deletado. Autenticação negada.", usuarioId);
-                    return;
-                }
-
-                UsernamePasswordAuthenticationToken autenticacao =
-                        new UsernamePasswordAuthenticationToken(
-                                usuario,
-                                null,
-                                usuario.getAuthorities()
-                        );
-
-                autenticacao.setDetails(
-                        new WebAuthenticationDetailsSource().buildDetails(request)
-                );
-
-                SecurityContextHolder.getContext().setAuthentication(autenticacao);
-
-                log.debug("Usuário {} autenticado via JWT.", usuarioId);
-            });
+            usuarioRepository.findByIdAndAtivoTrue(usuarioId)
+                    .filter(Usuario::podeAcessarSistema)
+                    .ifPresentOrElse(
+                            usuario -> registrarAutenticacao(usuario, request),
+                            () -> log.debug(
+                                    "Usuário {} autenticado no Supabase, mas sem perfil interno ativo no backend.",
+                                    usuarioId
+                            )
+                    );
 
         } catch (Exception e) {
             SecurityContextHolder.clearContext();
-            log.debug("Falha ao autenticar usuário via JWT: {}", e.getMessage());
+            log.debug("Falha ao autenticar token Supabase no backend: {}", e.getMessage());
         }
+    }
+
+    private void registrarAutenticacao(Usuario usuario, HttpServletRequest request) {
+        List<SimpleGrantedAuthority> authorities = List.of(
+                new SimpleGrantedAuthority("ROLE_" + usuario.getRole().name())
+        );
+
+        UsernamePasswordAuthenticationToken autenticacao =
+                new UsernamePasswordAuthenticationToken(
+                        usuario,
+                        null,
+                        authorities
+                );
+
+        autenticacao.setDetails(
+                new WebAuthenticationDetailsSource().buildDetails(request)
+        );
+
+        SecurityContextHolder.getContext().setAuthentication(autenticacao);
+
+        log.debug("Usuário {} autenticado no backend com role {}.", usuario.getId(), usuario.getRole());
     }
 
     private String extrairToken(HttpServletRequest request) {

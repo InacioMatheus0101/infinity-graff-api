@@ -67,12 +67,15 @@ springdoc:
     # Não desabilita o botão "Try it out".
     disable-swagger-default-url: true
 
-# ===== JWT =====
-jwt:
-  # Secret mínimo de 256 bits — obrigatório via variável de ambiente
-  secret: ${JWT_SECRET}
-  access-expiration-minutes: ${JWT_ACCESS_EXPIRATION_MINUTES:15}
-  refresh-expiration-days: ${JWT_REFRESH_EXPIRATION_DAYS:7}
+# ===== Supabase Auth =====
+# O Supabase Auth é responsável por cadastro, login, sessão e refresh token.
+# O backend valida o access token recebido no header Authorization.
+supabase:
+  auth:
+    project-url: ${SUPABASE_PROJECT_URL}
+    jwt-secret: ${SUPABASE_JWT_SECRET}
+    issuer: ${SUPABASE_ISSUER}
+    audience: ${SUPABASE_AUDIENCE:authenticated}
 
 # ===== CORS =====
 cors:
@@ -91,10 +94,10 @@ app:
   env: ${APP_ENV:development}
   admin:
     # Usado apenas pelo AdminSeeder quando SPRING_PROFILES_ACTIVE=development.
-    # Sem fallback: a ausência da variável causa falha explícita na inicialização.
-    # O AdminSeeder também valida que a senha não é vazia antes de criar o admin.
+    # Em production pode ficar vazio.
+    # O AdminSeeder deve validar que a senha não é vazia antes de criar o admin.
     email: ${ADMIN_INITIAL_EMAIL:admin@infinitygraff.com}
-    password: ${ADMIN_INITIAL_PASSWORD}
+    password: ${ADMIN_INITIAL_PASSWORD:}
 
 # ===== Logging =====
 logging:

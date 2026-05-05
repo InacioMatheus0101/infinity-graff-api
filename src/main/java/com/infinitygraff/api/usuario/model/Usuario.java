@@ -6,6 +6,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,27 +15,25 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.OffsetDateTime;
-import java.util.Collection;
-import java.util.List;
+import java.util.UUID;
 
 /**
- * Entidade que representa um usuário da plataforma INFINITY GRAFF.
+ * Entidade que representa o perfil interno de um usuário da plataforma INFINITY GRAFF.
+ *
+ * <p><b>Importante:</b> autenticação, cadastro, senha, sessão e refresh token
+ * são responsabilidade do Supabase Auth.
+ *
+ * <p>Esta entidade não armazena senha e não implementa {@code UserDetails}.
+ * Ela representa apenas os dados internos do marketplace:
+ * nome, email, role, status, aceite de termos e controle de soft delete.
+ *
+ * <p><b>ID:</b> o campo {@code id} deve ser o mesmo UUID do usuário no Supabase Auth.
  *
  * <p><b>Soft Delete:</b> registros nunca são removidos fisicamente do banco.
- * A exclusão preenche {@code deletadoEm} com o timestamp atual, atualiza
- * {@code atualizadoEm} e desativa o usuário.
- *
- * <p><b>Segurança:</b> o campo {@code senhaHash} armazena exclusivamente
- * o hash BCrypt da senha. A senha em texto puro nunca é persistida.
- *
- * <p><b>Spring Security:</b> implementa {@link UserDetails} para integração
- * nativa com o mecanismo de autenticação. {@code getUsername()} retorna o
- * e-mail e {@code getPassword()} retorna o hash BCrypt.
+ * A exclusão preenche {@code deletadoEm}, atualiza {@code atualizadoEm}
+ * e desativa o usuário.
  */
 @Getter
 @Setter
@@ -45,16 +44,21 @@ import java.util.List;
 @Table(name = "usuarios")
 @SQLRestriction("deletado_em IS NULL")
 @SQLDelete(sql = "UPDATE usuarios SET deletado_em = NOW(), atualizado_em = NOW(), ativo = false WHERE id = ?")
-public class Usuario extends BaseEntity implements UserDetails {
+public class Usuario extends BaseEntity {
+
+    /**
+     * Mesmo UUID do usuário no Supabase Auth.
+     * O backend não gera esse ID.
+     */
+    @Id
+    @Column(name = "id", nullable = false, updatable = false)
+    private UUID id;
 
     @Column(name = "nome", nullable = false, length = 100)
     private String nome;
 
     @Column(name = "email", nullable = false, length = 150)
     private String email;
-
-    @Column(name = "senha_hash", nullable = false, length = 255)
-    private String senhaHash;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false, length = 20)
@@ -67,13 +71,9 @@ public class Usuario extends BaseEntity implements UserDetails {
     @Column(name = "aceito_termos_em", nullable = false)
     private OffsetDateTime aceitoTermosEm;
 
-    // =========================================================
-    // Métodos de negócio
-    // =========================================================
-
     /**
-     * Realiza o soft delete: preenche {@code deletadoEm}, atualiza
-     * {@code atualizadoEm} e desativa o acesso do usuário.
+     * Realiza o soft delete: preenche deletadoEm, atualiza atualizadoEm
+     * e desativa o acesso interno do usuário.
      */
     public void deletar() {
         this.marcarComoDeletado();
@@ -81,7 +81,7 @@ public class Usuario extends BaseEntity implements UserDetails {
     }
 
     /**
-     * Ativa o usuário, permitindo que ele realize login.
+     * Ativa o usuário dentro do sistema interno.
      */
     public void ativar() {
         this.ativo = true;
@@ -89,52 +89,20 @@ public class Usuario extends BaseEntity implements UserDetails {
     }
 
     /**
-     * Desativa o usuário sem deletá-lo, impedindo o login.
+     * Desativa o usuário dentro do sistema interno sem aplicar soft delete.
      */
     public void desativar() {
         this.ativo = false;
         this.marcarComoAtualizado();
     }
 
-    // =========================================================
-    // UserDetails — Spring Security
-    // =========================================================
-
-    @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        return List.of(new SimpleGrantedAuthority("ROLE_" + this.role.name()));
-    }
-
-    @Override
-    public String getPassword() {
-        return this.senhaHash;
-    }
-
-    /** Retorna o e-mail como identificador principal de autenticação. */
-    @Override
-    public String getUsername() {
-        return this.email;
-    }
-
-    @Override
-    public boolean isAccountNonExpired() {
-        return true;
-    }
-
-    /** Conta bloqueada se o usuário estiver inativo ou soft-deletado. */
-    @Override
-    public boolean isAccountNonLocked() {
-        return this.ativo && !this.isDeletado();
-    }
-
-    @Override
-    public boolean isCredentialsNonExpired() {
-        return true;
-    }
-
-    /** Conta habilitada somente se ativa e não deletada. */
-    @Override
-    public boolean isEnabled() {
+    /**
+     * Indica se o usuário pode acessar as regras internas do marketplace.
+     *
+     * <p>O Supabase Auth pode autenticar o token, mas o backend ainda precisa
+     * validar se o usuário interno está ativo e não deletado.
+     */
+    public boolean podeAcessarSistema() {
         return this.ativo && !this.isDeletado();
     }
 }

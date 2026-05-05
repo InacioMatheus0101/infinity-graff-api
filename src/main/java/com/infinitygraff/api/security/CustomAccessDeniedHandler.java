@@ -20,8 +20,8 @@ import java.util.Map;
 /**
  * Handler responsável por respostas 403 Forbidden.
  *
- * Usado quando o usuário está autenticado, mas não possui permissão
- * para acessar determinado recurso.
+ * Usado quando o usuário possui token válido e perfil interno autenticado,
+ * mas não possui role/permissão suficiente para acessar determinado recurso.
  *
  * Nesta etapa, o JSON é montado manualmente porque ErrorResponse
  * será padronizado na etapa de tratamento global de erros.
