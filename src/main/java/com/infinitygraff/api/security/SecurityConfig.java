@@ -13,6 +13,13 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
 
+/**
+ * Configuração central do Spring Security.
+ *
+ * O Supabase Auth autentica a identidade do usuário.
+ * O backend valida o token Supabase e aplica permissões internas
+ * com base no perfil salvo na tabela usuarios.
+ */
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -20,6 +27,12 @@ import org.springframework.web.cors.CorsConfigurationSource;
 public class SecurityConfig {
 
     private static final String PREFIXO_API = "/api/v1";
+
+    private static final String ROLE_SUPABASE_AUTHENTICATED = "SUPABASE_AUTHENTICATED";
+    private static final String ROLE_ADMIN = "ADMIN";
+    private static final String ROLE_GERENTE = "GERENTE";
+    private static final String ROLE_PRESTADOR = "PRESTADOR";
+    private static final String ROLE_CLIENTE = "CLIENTE";
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final CorsConfigurationSource corsConfigurationSource;
@@ -47,8 +60,6 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.GET, PREFIXO_API + "/health").permitAll()
 
-                        .requestMatchers(HttpMethod.POST, PREFIXO_API + "/autenticacao/completar-perfil").permitAll()
-
                         .requestMatchers(
                                 "/swagger-ui.html",
                                 "/swagger-ui/**",
@@ -56,25 +67,49 @@ public class SecurityConfig {
                                 "/v3/api-docs/**"
                         ).permitAll()
 
+                        /*
+                         * Exige token válido do Supabase.
+                         *
+                         * Permite:
+                         * - usuário Supabase autenticado ainda sem perfil interno;
+                         * - usuário que já possui perfil interno e chamou a rota novamente.
+                         */
+                        .requestMatchers(HttpMethod.POST, PREFIXO_API + "/autenticacao/completar-perfil")
+                                .hasAnyRole(
+                                        ROLE_SUPABASE_AUTHENTICATED,
+                                        ROLE_CLIENTE,
+                                        ROLE_PRESTADOR,
+                                        ROLE_GERENTE,
+                                        ROLE_ADMIN
+                                )
+
+                        /*
+                         * A partir daqui, exige perfil interno real na tabela usuarios.
+                         */
                         .requestMatchers(HttpMethod.GET, PREFIXO_API + "/autenticacao/meu-perfil")
-                                .authenticated()
+                                .hasAnyRole(ROLE_CLIENTE, ROLE_PRESTADOR, ROLE_GERENTE, ROLE_ADMIN)
 
                         .requestMatchers(HttpMethod.GET, PREFIXO_API + "/usuarios")
-                                .hasAnyRole("ADMIN", "GERENTE")
+                                .hasAnyRole(ROLE_ADMIN, ROLE_GERENTE)
 
                         .requestMatchers(HttpMethod.GET, PREFIXO_API + "/usuarios/{id}")
-                                .authenticated()
+                                .hasAnyRole(ROLE_CLIENTE, ROLE_PRESTADOR, ROLE_GERENTE, ROLE_ADMIN)
 
                         .requestMatchers(HttpMethod.PATCH, PREFIXO_API + "/usuarios/{id}/status")
-                                .hasAnyRole("ADMIN", "GERENTE")
+                                .hasAnyRole(ROLE_ADMIN, ROLE_GERENTE)
 
                         .requestMatchers(HttpMethod.DELETE, PREFIXO_API + "/usuarios/{id}")
-                                .hasRole("ADMIN")
+                                .hasRole(ROLE_ADMIN)
 
                         .requestMatchers(HttpMethod.GET, PREFIXO_API + "/auditoria/logs")
-                                .hasRole("ADMIN")
+                                .hasRole(ROLE_ADMIN)
 
-                        .anyRequest().authenticated()
+                        /*
+                         * Segurança defensiva:
+                         * qualquer nova rota esquecida aqui exige perfil interno real.
+                         */
+                        .anyRequest()
+                                .hasAnyRole(ROLE_CLIENTE, ROLE_PRESTADOR, ROLE_GERENTE, ROLE_ADMIN)
                 )
 
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

@@ -1,63 +1,89 @@
 package com.infinitygraff.api.security;
 
 import com.infinitygraff.api.config.SupabaseAuthProperties;
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.JwtException;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
+import org.springframework.security.oauth2.jose.jws.SignatureAlgorithm;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
-import java.util.Collection;
 import java.util.UUID;
 
 /**
  * Serviço responsável por validar access tokens emitidos pelo Supabase Auth.
  *
  * O backend Spring não gera access token nem refresh token.
- * Cadastro, login, sessão e refresh token são responsabilidade do Supabase Auth.
+ * Cadastro, login, senha, sessão e refresh token são responsabilidade do Supabase Auth.
  *
- * Este serviço apenas:
- * - valida assinatura do JWT;
+ * Como os tokens do projeto são assinados com ES256, a validação é feita
+ * usando JWKS/Signing Keys do Supabase, não Legacy JWT Secret.
+ *
+ * Este serviço:
+ * - valida assinatura via JWKS;
+ * - valida expiração;
  * - valida issuer;
  * - valida audience;
- * - extrai o subject, que representa o UUID do usuário no Supabase Auth.
+ * - extrai subject, que representa o UUID do usuário no Supabase Auth;
+ * - extrai email.
  */
 @Slf4j
 @Service
 public class SupabaseJwtService {
 
     private static final String CLAIM_EMAIL = "email";
-    private static final String CLAIM_AUDIENCE = "aud";
 
     private final SupabaseAuthProperties supabaseAuthProperties;
-    private final SecretKey chaveAssinatura;
+    private final JwtDecoder jwtDecoder;
 
     public SupabaseJwtService(SupabaseAuthProperties supabaseAuthProperties) {
         this.supabaseAuthProperties = supabaseAuthProperties;
-        this.chaveAssinatura = Keys.hmacShaKeyFor(
-                supabaseAuthProperties.jwtSecret().getBytes(StandardCharsets.UTF_8)
-        );
+
+        NimbusJwtDecoder decoder = NimbusJwtDecoder
+                .withJwkSetUri(supabaseAuthProperties.jwksUrl())
+                .jwsAlgorithm(SignatureAlgorithm.ES256)
+                .build();
+
+        decoder.setJwtValidator(criarValidador());
+
+        this.jwtDecoder = decoder;
     }
 
+    /**
+     * Valida e decodifica o token uma única vez.
+     *
+     * O JwtAuthenticationFilter deve usar este método e reutilizar o Jwt retornado
+     * para extrair id, email e demais claims, evitando múltiplas validações na mesma requisição.
+     */
+    public Jwt validarEDecodificar(String token) {
+        return jwtDecoder.decode(token);
+    }
+
+    /**
+     * Método utilitário para validações pontuais.
+     *
+     * No fluxo principal de autenticação, prefira usar validarEDecodificar(token)
+     * para evitar decodificações repetidas.
+     */
     public boolean isTokenValido(String token) {
         try {
-            Claims claims = extrairClaims(token);
-            return audienceValida(claims);
-        } catch (ExpiredJwtException e) {
-            log.debug("Token Supabase expirado: {}", e.getMessage());
-            return false;
+            validarEDecodificar(token);
+            return true;
         } catch (JwtException | IllegalArgumentException e) {
             log.debug("Token Supabase inválido: {}", e.getMessage());
             return false;
         }
     }
 
-    public UUID extrairUsuarioId(String token) {
-        String subject = extrairClaims(token).getSubject();
+    public UUID extrairUsuarioId(Jwt jwt) {
+        String subject = jwt.getSubject();
 
         if (subject == null || subject.isBlank()) {
             throw new JwtException("Token Supabase sem subject");
@@ -66,36 +92,31 @@ public class SupabaseJwtService {
         return UUID.fromString(subject);
     }
 
-    public String extrairEmail(String token) {
-        return extrairClaims(token).get(CLAIM_EMAIL, String.class);
+    public String extrairEmail(Jwt jwt) {
+        return jwt.getClaimAsString(CLAIM_EMAIL);
     }
 
-    private Claims extrairClaims(String token) {
-        Claims claims = Jwts.parser()
-                .verifyWith(chaveAssinatura)
-                .requireIssuer(supabaseAuthProperties.issuer())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
-
-        if (!audienceValida(claims)) {
-            throw new JwtException("Audience inválida no token Supabase");
-        }
-
-        return claims;
+    private OAuth2TokenValidator<Jwt> criarValidador() {
+        return new DelegatingOAuth2TokenValidator<>(
+                new JwtTimestampValidator(),
+                new JwtIssuerValidator(supabaseAuthProperties.issuer()),
+                validarAudience()
+        );
     }
 
-    private boolean audienceValida(Claims claims) {
-        Object audience = claims.get(CLAIM_AUDIENCE);
+    private OAuth2TokenValidator<Jwt> validarAudience() {
+        return jwt -> {
+            if (jwt.getAudience().contains(supabaseAuthProperties.audience())) {
+                return OAuth2TokenValidatorResult.success();
+            }
 
-        if (audience instanceof String aud) {
-            return supabaseAuthProperties.audience().equals(aud);
-        }
+            OAuth2Error erro = new OAuth2Error(
+                    "invalid_token",
+                    "Audience inválida no token Supabase",
+                    null
+            );
 
-        if (audience instanceof Collection<?> audiences) {
-            return audiences.contains(supabaseAuthProperties.audience());
-        }
-
-        return false;
+            return OAuth2TokenValidatorResult.failure(erro);
+        };
     }
 }

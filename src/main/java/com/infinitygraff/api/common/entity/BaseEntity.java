@@ -25,6 +25,7 @@ import java.time.ZoneOffset;
  * Cada entidade deve declarar seu próprio identificador conforme sua regra.
  * No caso de {@code Usuario}, o ID será o mesmo UUID do Supabase Auth.
  */
+
 @Getter
 @MappedSuperclass
 public abstract class BaseEntity {
@@ -50,12 +51,30 @@ public abstract class BaseEntity {
         this.atualizadoEm = OffsetDateTime.now(ZoneOffset.UTC);
     }
 
+    /**
+     * Marca a entidade como deletada logicamente.
+     *
+     * <p>Este método deve ser usado pelo método de domínio da entidade filha,
+     * por exemplo {@code usuario.deletar()}.
+     *
+     * <p>Observação: ao salvar a entidade após esta chamada, o {@code @PreUpdate}
+     * pode atualizar novamente {@code atualizadoEm}. Isso é aceitável, pois o campo
+     * representa o momento da última persistência.
+     */
+
     protected void marcarComoDeletado() {
         OffsetDateTime agora = OffsetDateTime.now(ZoneOffset.UTC);
         this.deletadoEm = agora;
         this.atualizadoEm = agora;
     }
 
+    /**
+     * Marca a entidade como atualizada manualmente em métodos de domínio.
+     *
+     * <p>Assim como no soft delete, o {@code @PreUpdate} pode atualizar novamente
+     * este valor no momento da persistência.
+     */
+    
     protected void marcarComoAtualizado() {
         this.atualizadoEm = OffsetDateTime.now(ZoneOffset.UTC);
     }

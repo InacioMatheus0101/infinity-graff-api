@@ -31,9 +31,14 @@ import java.util.UUID;
  *
  * <p><b>ID:</b> o campo {@code id} deve ser o mesmo UUID do usuário no Supabase Auth.
  *
- * <p><b>Soft Delete:</b> registros nunca são removidos fisicamente do banco.
- * A exclusão preenche {@code deletadoEm}, atualiza {@code atualizadoEm}
- * e desativa o usuário.
+ * <p><b>Soft delete — padrão oficial de uso:</b>
+ * o service deve chamar {@code usuario.deletar()} seguido de {@code usuarioRepository.save(usuario)}.
+ * Esse é o caminho oficial da aplicação porque mantém a entidade em memória coerente
+ * com o estado que será persistido no banco.
+ *
+ * <p>O {@link SQLDelete} existe apenas como proteção defensiva caso algum trecho do código
+ * use {@code repository.delete(usuario)} por engano. Ele evita delete físico acidental,
+ * mas não deve ser o caminho principal da regra de negócio.
  */
 @Getter
 @Setter
@@ -57,6 +62,15 @@ public class Usuario extends BaseEntity {
     @Column(name = "nome", nullable = false, length = 100)
     private String nome;
 
+    /**
+     * E-mail normalizado do usuário.
+     *
+     * <p>A unicidade case-insensitive é garantida pela migration através do índice:
+     * {@code idx_usuarios_email_lower ON usuarios (LOWER(email))}.
+     *
+     * <p>Não usamos {@code unique = true} aqui porque a constraint real no banco
+     * é baseada em {@code LOWER(email)}, e não em uma constraint simples case-sensitive.
+     */
     @Column(name = "email", nullable = false, length = 150)
     private String email;
 
@@ -72,8 +86,17 @@ public class Usuario extends BaseEntity {
     private OffsetDateTime aceitoTermosEm;
 
     /**
-     * Realiza o soft delete: preenche deletadoEm, atualiza atualizadoEm
-     * e desativa o acesso interno do usuário.
+     * Realiza o soft delete do usuário.
+     *
+     * <p>Caminho oficial de uso no service:
+     * <pre>
+     * usuario.deletar();
+     * usuarioRepository.save(usuario);
+     * </pre>
+     *
+     * <p>Não usar {@code usuarioRepository.delete(usuario)} como fluxo principal,
+     * pois nesse caso o {@code @SQLDelete} atualiza o banco diretamente, mas a entidade
+     * em memória não reflete imediatamente o valor de {@code deletadoEm}.
      */
     public void deletar() {
         this.marcarComoDeletado();
@@ -99,8 +122,8 @@ public class Usuario extends BaseEntity {
     /**
      * Indica se o usuário pode acessar as regras internas do marketplace.
      *
-     * <p>O Supabase Auth pode autenticar o token, mas o backend ainda precisa
-     * validar se o usuário interno está ativo e não deletado.
+     * <p>O Supabase Auth autentica o token, mas o backend ainda precisa validar
+     * se o usuário interno está ativo e não deletado.
      */
     public boolean podeAcessarSistema() {
         return this.ativo && !this.isDeletado();

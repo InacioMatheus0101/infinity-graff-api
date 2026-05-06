@@ -73,9 +73,9 @@ springdoc:
 supabase:
   auth:
     project-url: ${SUPABASE_PROJECT_URL}
-    jwt-secret: ${SUPABASE_JWT_SECRET}
     issuer: ${SUPABASE_ISSUER}
     audience: ${SUPABASE_AUDIENCE:authenticated}
+    jwks-url: ${SUPABASE_JWKS_URL}
 
 # ===== CORS =====
 cors:
@@ -106,7 +106,3 @@ logging:
     org.springframework.security: WARN
     org.hibernate.SQL: WARN
     org.flywaydb: INFO
-  pattern:
-    # ,UTC no padrão de data força o timestamp em UTC explicitamente,
-    # independente do timezone da JVM — mais robusto que depender só do TZ=UTC.
-    console: "%d{yyyy-MM-dd HH:mm:ss.SSS,UTC} [%thread] %-5level %logger{36} - %msg%n"
