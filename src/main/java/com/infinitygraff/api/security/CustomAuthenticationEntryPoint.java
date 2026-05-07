@@ -1,6 +1,7 @@
 package com.infinitygraff.api.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.infinitygraff.api.common.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -12,10 +13,6 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
  * Handler responsável por respostas 401 Unauthorized.
@@ -24,10 +21,11 @@ import java.util.Map;
  * - token Supabase ausente;
  * - token Supabase inválido;
  * - token Supabase expirado;
- * - usuário autenticado no Supabase, mas sem perfil interno ativo no backend.
+ * - perfil interno inativo/deletado, quando o filtro não autentica o usuário.
  *
- * Nesta etapa, o JSON é montado manualmente porque ErrorResponse
- * será padronizado na etapa de tratamento global de erros.
+ * Este handler roda dentro da cadeia do Spring Security, antes do fluxo normal
+ * dos controllers. Por isso, ele não é tratado pelo GlobalExceptionHandler
+ * e precisa montar explicitamente o ErrorResponse.
  */
 @Component
 @RequiredArgsConstructor
@@ -48,13 +46,12 @@ public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint 
 
         HttpStatus status = HttpStatus.UNAUTHORIZED;
 
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("timestamp", OffsetDateTime.now(ZoneOffset.UTC));
-        body.put("status", status.value());
-        body.put("erro", "Não autorizado");
-        body.put("mensagem", "Token ausente ou inválido");
-        body.put("path", request.getRequestURI());
-        body.put("detalhes", null);
+        ErrorResponse body = ErrorResponse.erro(
+                status,
+                "Não autorizado",
+                "Token ausente ou inválido",
+                request
+        );
 
         response.setStatus(status.value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());

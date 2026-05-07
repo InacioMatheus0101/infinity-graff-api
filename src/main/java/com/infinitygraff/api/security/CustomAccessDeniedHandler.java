@@ -1,6 +1,7 @@
 package com.infinitygraff.api.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.infinitygraff.api.common.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -12,19 +13,16 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 /**
  * Handler responsável por respostas 403 Forbidden.
  *
- * Usado quando o usuário possui token válido e perfil interno autenticado,
+ * Usado quando o usuário possui token válido e autenticação reconhecida,
  * mas não possui role/permissão suficiente para acessar determinado recurso.
  *
- * Nesta etapa, o JSON é montado manualmente porque ErrorResponse
- * será padronizado na etapa de tratamento global de erros.
+ * Este handler roda dentro da cadeia do Spring Security, antes do fluxo normal
+ * dos controllers. Por isso, ele não é tratado pelo GlobalExceptionHandler
+ * e precisa montar explicitamente o ErrorResponse.
  */
 @Component
 @RequiredArgsConstructor
@@ -45,13 +43,12 @@ public class CustomAccessDeniedHandler implements AccessDeniedHandler {
 
         HttpStatus status = HttpStatus.FORBIDDEN;
 
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("timestamp", OffsetDateTime.now(ZoneOffset.UTC));
-        body.put("status", status.value());
-        body.put("erro", "Acesso negado");
-        body.put("mensagem", "Você não tem permissão para acessar este recurso");
-        body.put("path", request.getRequestURI());
-        body.put("detalhes", null);
+        ErrorResponse body = ErrorResponse.erro(
+                status,
+                "Acesso negado",
+                "Você não tem permissão para acessar este recurso",
+                request
+        );
 
         response.setStatus(status.value());
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
