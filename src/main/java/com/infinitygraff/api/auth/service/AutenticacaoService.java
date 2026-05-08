@@ -1,20 +1,19 @@
 package com.infinitygraff.api.auth.service;
 
 import com.infinitygraff.api.auth.dto.CompletarPerfilRequest;
-import com.infinitygraff.api.auth.dto.MeuPerfilResponse;
 import com.infinitygraff.api.common.exception.AcessoNegadoException;
 import com.infinitygraff.api.common.exception.NegocioException;
-import com.infinitygraff.api.common.exception.RecursoNaoEncontradoException;
+import com.infinitygraff.api.security.SecurityContextHelper;
 import com.infinitygraff.api.security.SupabaseAuthenticatedPrincipal;
+import com.infinitygraff.api.usuario.dto.UsuarioResponse;
 import com.infinitygraff.api.usuario.enums.Role;
 import com.infinitygraff.api.usuario.model.Usuario;
 import com.infinitygraff.api.usuario.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,18 +24,10 @@ import java.util.Locale;
 /**
  * Serviço responsável pela ponte entre Supabase Auth e o backend interno.
  *
- * O Supabase Auth cuida de:
- * - cadastro;
- * - login;
- * - senha;
- * - sessão;
- * - refresh token.
+ * <p>O Supabase Auth cuida de cadastro, login, senha, sessão e refresh token.
  *
- * O backend Spring cuida de:
- * - criar o perfil interno na tabela usuarios;
- * - controlar role interna;
- * - controlar status ativo/inativo;
- * - aplicar regras de permissão do marketplace.
+ * <p>O backend Spring cuida de criar o perfil interno na tabela {@code usuarios},
+ * controlar role interna, controlar status ativo/inativo e aplicar regras de permissão.
  */
 @Slf4j
 @Service
@@ -44,20 +35,20 @@ import java.util.Locale;
 public class AutenticacaoService {
 
     private final UsuarioRepository usuarioRepository;
+    private final SecurityContextHelper securityContextHelper;
 
     /**
      * Completa o perfil interno do usuário autenticado pelo Supabase Auth.
      *
-     * O token Supabase já foi validado pelo JwtAuthenticationFilter.
+     * <p>O token Supabase já foi validado pelo JwtAuthenticationFilter.
      * Este método não valida token manualmente.
      *
-     * Cenários:
-     * - principal SupabaseAuthenticatedPrincipal: cria o perfil interno;
-     * - principal Usuario: perfil já existe, retorna o perfil existente ou conflito se role divergir.
+     * <p>Este fluxo é idempotente quando o perfil já existe com a mesma role:
+     * nesse caso, o perfil existente é retornado.
      */
     @Transactional
-    public MeuPerfilResponse completarPerfil(CompletarPerfilRequest request) {
-        Authentication authentication = obterAuthentication();
+    public ResultadoCompletarPerfil completarPerfil(CompletarPerfilRequest request) {
+        Authentication authentication = securityContextHelper.obterAuthentication();
 
         Object principal = authentication.getPrincipal();
 
@@ -69,30 +60,21 @@ public class AutenticacaoService {
             return tratarPerfilJaExistente(usuario, request);
         }
 
-        throw new NegocioException("Token ausente ou inválido", HttpStatus.UNAUTHORIZED);
+        throw new BadCredentialsException("Token ausente ou inválido");
     }
 
     /**
      * Retorna o perfil interno do usuário autenticado.
      *
-     * Esta rota exige que o usuário já exista na tabela usuarios.
+     * <p>Esta rota exige que o usuário já exista na tabela {@code usuarios}.
      */
     @Transactional(readOnly = true)
-    public MeuPerfilResponse meuPerfil() {
-        Authentication authentication = obterAuthentication();
-
-        if (!(authentication.getPrincipal() instanceof Usuario usuario)) {
-            throw new RecursoNaoEncontradoException("Perfil interno ainda não foi criado");
-        }
-
-        if (!usuario.podeAcessarSistema()) {
-            throw new AcessoNegadoException("Usuário inativo ou indisponível");
-        }
-
-        return MeuPerfilResponse.de(usuario);
+    public UsuarioResponse meuPerfil() {
+        Usuario usuario = securityContextHelper.obterUsuarioAutenticado();
+        return UsuarioResponse.de(usuario);
     }
 
-    private MeuPerfilResponse criarPerfilInterno(
+    private ResultadoCompletarPerfil criarPerfilInterno(
             SupabaseAuthenticatedPrincipal principal,
             CompletarPerfilRequest request
     ) {
@@ -101,19 +83,30 @@ public class AutenticacaoService {
         String emailNormalizado = normalizarEmail(principal.email());
 
         if (emailNormalizado.isBlank()) {
-            throw new NegocioException("Token Supabase não possui e-mail válido", HttpStatus.UNAUTHORIZED);
+            throw new BadCredentialsException("Token Supabase não possui e-mail válido");
         }
 
-        usuarioRepository.findById(principal.id()).ifPresent(usuario -> {
-            throw new NegocioException("Perfil interno já existe para este usuário", HttpStatus.CONFLICT);
-        });
+        if (usuarioRepository.existsById(principal.id())) {
+            throw new NegocioException(
+                    "Perfil interno já existe para este usuário",
+                    HttpStatus.CONFLICT
+            );
+        }
 
         if (usuarioRepository.existsByEmailIgnoreCase(emailNormalizado)) {
-            throw new NegocioException("E-mail já vinculado a outro perfil", HttpStatus.CONFLICT);
+            throw new NegocioException(
+                    "E-mail já vinculado a outro perfil",
+                    HttpStatus.CONFLICT
+            );
         }
 
         Usuario usuario = Usuario.builder()
                 .id(principal.id())
+                /*
+                 * A entidade Usuario também normaliza o nome no construtor controlado
+                 * e antes de salvar. O trim aqui deixa a intenção explícita no fluxo
+                 * de criação do perfil.
+                 */
                 .nome(request.nome().trim())
                 .email(emailNormalizado)
                 .role(request.role())
@@ -125,10 +118,10 @@ public class AutenticacaoService {
 
         // TODO: registrar auditoria USUARIO_CADASTRADO após implementação do AuditoriaService.
 
-        return MeuPerfilResponse.de(salvo);
+        return ResultadoCompletarPerfil.criado(UsuarioResponse.de(salvo));
     }
 
-    private MeuPerfilResponse tratarPerfilJaExistente(
+    private ResultadoCompletarPerfil tratarPerfilJaExistente(
             Usuario usuario,
             CompletarPerfilRequest request
     ) {
@@ -149,7 +142,7 @@ public class AutenticacaoService {
                 usuario.getRole()
         );
 
-        return MeuPerfilResponse.de(usuario);
+        return ResultadoCompletarPerfil.existente(UsuarioResponse.de(usuario));
     }
 
     private void validarRolePermitidaParaCadastroPublico(Role role) {
@@ -158,18 +151,6 @@ public class AutenticacaoService {
                     "Cadastro público permitido apenas para CLIENTE ou PRESTADOR"
             );
         }
-    }
-
-    private Authentication obterAuthentication() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null
-                || authentication instanceof AnonymousAuthenticationToken
-                || !authentication.isAuthenticated()) {
-            throw new NegocioException("Token ausente ou inválido", HttpStatus.UNAUTHORIZED);
-        }
-
-        return authentication;
     }
 
     private String normalizarEmail(String email) {

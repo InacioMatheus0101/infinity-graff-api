@@ -94,10 +94,16 @@ app:
   env: ${APP_ENV:development}
   admin:
     # Usado apenas pelo AdminSeeder quando SPRING_PROFILES_ACTIVE=development.
-    # Em production pode ficar vazio.
-    # O AdminSeeder deve validar que a senha não é vazia antes de criar o admin.
-    email: ${ADMIN_INITIAL_EMAIL:admin@infinitygraff.com}
-    password: ${ADMIN_INITIAL_PASSWORD:}
+    #
+    # IMPORTANTE:
+    # O backend NÃO cria login, senha ou usuário no Supabase Auth.
+    # O usuário admin precisa existir primeiro no Supabase Auth.
+    # Aqui informamos apenas o UUID, e-mail e nome para criar o perfil interno ADMIN
+    # na tabela usuarios, caso ainda não exista nenhum ADMIN.
+    
+    user-id: ${ADMIN_INITIAL_USER_ID:}
+    email: ${ADMIN_INITIAL_EMAIL:}
+    name: ${ADMIN_INITIAL_NAME:Administrador}
 
 # ===== Logging =====
 logging:
