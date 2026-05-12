@@ -102,7 +102,7 @@ public class SecurityConfig {
                                 .hasRole(ROLE_ADMIN)
 
                         .requestMatchers(HttpMethod.GET, PREFIXO_API + "/auditoria/logs")
-                                .hasRole(ROLE_ADMIN)
+                                .hasAnyRole(ROLE_ADMIN, ROLE_GERENTE)
 
                         /*
                          * Segurança defensiva:

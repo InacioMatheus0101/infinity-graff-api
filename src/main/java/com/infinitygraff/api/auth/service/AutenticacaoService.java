@@ -1,5 +1,9 @@
 package com.infinitygraff.api.auth.service;
 
+import com.infinitygraff.api.auditoria.model.LogAuditoria;
+import com.infinitygraff.api.auditoria.service.AuditoriaContext;
+import com.infinitygraff.api.auditoria.service.AuditoriaHelper;
+import com.infinitygraff.api.auditoria.service.AuditoriaService;
 import com.infinitygraff.api.auth.dto.CompletarPerfilRequest;
 import com.infinitygraff.api.common.exception.AcessoNegadoException;
 import com.infinitygraff.api.common.exception.NegocioException;
@@ -34,8 +38,13 @@ import java.util.Locale;
 @RequiredArgsConstructor
 public class AutenticacaoService {
 
+    private static final String ACAO_USUARIO_CADASTRADO = "USUARIO_CADASTRADO";
+    private static final String ENTIDADE_USUARIOS = "usuarios";
+
     private final UsuarioRepository usuarioRepository;
     private final SecurityContextHelper securityContextHelper;
+    private final AuditoriaService auditoriaService;
+    private final AuditoriaHelper auditoriaHelper;
 
     /**
      * Completa o perfil interno do usuário autenticado pelo Supabase Auth.
@@ -47,13 +56,16 @@ public class AutenticacaoService {
      * nesse caso, o perfil existente é retornado.
      */
     @Transactional
-    public ResultadoCompletarPerfil completarPerfil(CompletarPerfilRequest request) {
+    public ResultadoCompletarPerfil completarPerfil(
+            CompletarPerfilRequest request,
+            AuditoriaContext auditoriaContext
+    ) {
         Authentication authentication = securityContextHelper.obterAuthentication();
 
         Object principal = authentication.getPrincipal();
 
         if (principal instanceof SupabaseAuthenticatedPrincipal supabasePrincipal) {
-            return criarPerfilInterno(supabasePrincipal, request);
+            return criarPerfilInterno(supabasePrincipal, request, auditoriaContext);
         }
 
         if (principal instanceof Usuario usuario) {
@@ -76,7 +88,8 @@ public class AutenticacaoService {
 
     private ResultadoCompletarPerfil criarPerfilInterno(
             SupabaseAuthenticatedPrincipal principal,
-            CompletarPerfilRequest request
+            CompletarPerfilRequest request,
+            AuditoriaContext auditoriaContext
     ) {
         validarRolePermitidaParaCadastroPublico(request.role());
 
@@ -102,11 +115,6 @@ public class AutenticacaoService {
 
         Usuario usuario = Usuario.builder()
                 .id(principal.id())
-                /*
-                 * A entidade Usuario também normaliza o nome no construtor controlado
-                 * e antes de salvar. O trim aqui deixa a intenção explícita no fluxo
-                 * de criação do perfil.
-                 */
                 .nome(request.nome().trim())
                 .email(emailNormalizado)
                 .role(request.role())
@@ -115,10 +123,11 @@ public class AutenticacaoService {
                 .build();
 
         Usuario salvo = usuarioRepository.save(usuario);
+        UsuarioResponse response = UsuarioResponse.de(salvo);
 
-        // TODO: registrar auditoria USUARIO_CADASTRADO após implementação do AuditoriaService.
+        registrarUsuarioCadastradoAposCommit(salvo, response, auditoriaContext);
 
-        return ResultadoCompletarPerfil.criado(UsuarioResponse.de(salvo));
+        return ResultadoCompletarPerfil.criado(response);
     }
 
     private ResultadoCompletarPerfil tratarPerfilJaExistente(
@@ -151,6 +160,29 @@ public class AutenticacaoService {
                     "Cadastro público permitido apenas para CLIENTE ou PRESTADOR"
             );
         }
+    }
+
+    private void registrarUsuarioCadastradoAposCommit(
+            Usuario usuario,
+            UsuarioResponse response,
+            AuditoriaContext auditoriaContext
+    ) {
+        AuditoriaContext contexto = auditoriaContext != null
+                ? auditoriaContext
+                : AuditoriaContext.vazio();
+
+        LogAuditoria entrada = LogAuditoria.builder()
+                .usuarioId(usuario.getId())
+                .acao(ACAO_USUARIO_CADASTRADO)
+                .entidade(ENTIDADE_USUARIOS)
+                .entidadeId(usuario.getId())
+                .dadosAntes(null)
+                .dadosDepois(auditoriaHelper.serializarSeguro(response))
+                .ip(contexto.ip())
+                .userAgent(contexto.userAgent())
+                .build();
+
+        auditoriaHelper.executarAposCommit(() -> auditoriaService.registrar(entrada));
     }
 
     private String normalizarEmail(String email) {

@@ -1,5 +1,6 @@
 package com.infinitygraff.api.auth.controller;
 
+import com.infinitygraff.api.auditoria.service.AuditoriaHelper;
 import com.infinitygraff.api.auth.dto.CompletarPerfilRequest;
 import com.infinitygraff.api.auth.service.AutenticacaoService;
 import com.infinitygraff.api.auth.service.ResultadoCompletarPerfil;
@@ -30,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AutenticacaoController {
 
     private final AutenticacaoService autenticacaoService;
+    private final AuditoriaHelper auditoriaHelper;
 
     /**
      * Completa ou sincroniza o perfil interno do usuário após autenticação pelo Supabase Auth.
@@ -42,13 +44,19 @@ public class AutenticacaoController {
      * <p>Esta rota é idempotente quando o perfil já existe com a mesma role:
      * nesse caso, retorna {@code 200 OK} com o perfil existente.
      * Quando o perfil é criado pela primeira vez, retorna {@code 201 Created}.
+     *
+     * <p>Quando um novo perfil interno é criado, o service registra auditoria
+     * com IP e User-Agent extraídos da requisição.
      */
     @PostMapping("/completar-perfil")
     public ResponseEntity<ApiResponse<UsuarioResponse>> completarPerfil(
             @Valid @RequestBody CompletarPerfilRequest request,
             HttpServletRequest httpRequest
     ) {
-        ResultadoCompletarPerfil resultado = autenticacaoService.completarPerfil(request);
+        ResultadoCompletarPerfil resultado = autenticacaoService.completarPerfil(
+                request,
+                auditoriaHelper.criarContexto(httpRequest)
+        );
 
         String mensagem = resultado.criado()
                 ? "Perfil interno criado com sucesso"

@@ -1,5 +1,9 @@
 package com.infinitygraff.api.usuario.service;
 
+import com.infinitygraff.api.auditoria.model.LogAuditoria;
+import com.infinitygraff.api.auditoria.service.AuditoriaContext;
+import com.infinitygraff.api.auditoria.service.AuditoriaHelper;
+import com.infinitygraff.api.auditoria.service.AuditoriaService;
 import com.infinitygraff.api.common.exception.AcessoNegadoException;
 import com.infinitygraff.api.common.exception.NegocioException;
 import com.infinitygraff.api.common.exception.RecursoNaoEncontradoException;
@@ -40,6 +44,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UsuarioService {
 
+    private static final String ACAO_USUARIO_ATIVADO = "USUARIO_ATIVADO";
+    private static final String ACAO_USUARIO_DESATIVADO = "USUARIO_DESATIVADO";
+    private static final String ACAO_USUARIO_DELETADO = "USUARIO_DELETADO";
+    private static final String ENTIDADE_USUARIOS = "usuarios";
+
     private static final List<Role> ROLES_GERENCIAVEIS_PELO_GERENTE = List.of(
             Role.CLIENTE,
             Role.PRESTADOR
@@ -47,6 +56,8 @@ public class UsuarioService {
 
     private final UsuarioRepository usuarioRepository;
     private final SecurityContextHelper securityContextHelper;
+    private final AuditoriaService auditoriaService;
+    private final AuditoriaHelper auditoriaHelper;
 
     /**
      * Lista usuários com paginação e filtros opcionais.
@@ -125,31 +136,47 @@ public class UsuarioService {
     @Transactional
     public UsuarioResponse atualizarStatus(
             UUID id,
-            AtualizarStatusRequest request
+            AtualizarStatusRequest request,
+            AuditoriaContext auditoriaContext
     ) {
         Objects.requireNonNull(id, "id não pode ser nulo");
         Objects.requireNonNull(request, "request não pode ser nulo");
 
+        Boolean ativoSolicitado = Objects.requireNonNull(
+                request.ativo(),
+                "ativo não pode ser nulo"
+        );
+
         Usuario autenticado = securityContextHelper.obterUsuarioAutenticado();
         Usuario alvo = buscarUsuarioOuFalhar(id);
 
-        validarPermissaoAlterarStatus(autenticado, alvo, request.ativo());
+        validarPermissaoAlterarStatus(autenticado, alvo, ativoSolicitado);
 
-        if (request.ativo().equals(alvo.isAtivo())) {
+        if (ativoSolicitado.equals(alvo.isAtivo())) {
             return UsuarioResponse.de(alvo);
         }
 
-        if (request.ativo()) {
+        UsuarioResponse antes = UsuarioResponse.de(alvo);
+
+        if (ativoSolicitado) {
             alvo.ativar();
         } else {
             alvo.desativar();
         }
 
         Usuario salvo = usuarioRepository.save(alvo);
+        UsuarioResponse depois = UsuarioResponse.de(salvo);
 
-        // TODO: registrar auditoria USUARIO_ATIVADO ou USUARIO_DESATIVADO após implementação do AuditoriaService.
+        registrarAlteracaoStatusAposCommit(
+                autenticado,
+                salvo,
+                antes,
+                depois,
+                ativoSolicitado,
+                auditoriaContext
+        );
 
-        return UsuarioResponse.de(salvo);
+        return depois;
     }
 
     /**
@@ -159,7 +186,10 @@ public class UsuarioService {
      * O fluxo oficial é {@code usuario.deletar()} seguido de {@code save()}.
      */
     @Transactional
-    public void aplicarSoftDelete(UUID id) {
+    public void aplicarSoftDelete(
+            UUID id,
+            AuditoriaContext auditoriaContext
+    ) {
         Objects.requireNonNull(id, "id não pode ser nulo");
 
         Usuario autenticado = securityContextHelper.obterUsuarioAutenticado();
@@ -167,10 +197,25 @@ public class UsuarioService {
 
         validarPermissaoSoftDelete(autenticado, alvo);
 
-        alvo.deletar();
-        usuarioRepository.save(alvo);
+        UsuarioResponse antes = UsuarioResponse.de(alvo);
 
-        // TODO: registrar auditoria USUARIO_DELETADO após implementação do AuditoriaService.
+        alvo.deletar();
+        Usuario salvo = usuarioRepository.save(alvo);
+
+        /*
+         * O método retorna 204 No Content no controller.
+         * Este DTO é criado apenas para registrar dadosDepois na auditoria.
+         * UsuarioResponse não expõe deletadoEm por decisão de segurança/encapsulamento.
+         */
+        UsuarioResponse depois = UsuarioResponse.de(salvo);
+
+        registrarSoftDeleteAposCommit(
+                autenticado,
+                salvo,
+                antes,
+                depois,
+                auditoriaContext
+        );
     }
 
     private Usuario buscarUsuarioOuFalhar(UUID id) {
@@ -228,6 +273,71 @@ public class UsuarioService {
                     HttpStatus.BAD_REQUEST
             );
         }
+    }
+
+    private void registrarAlteracaoStatusAposCommit(
+            Usuario autor,
+            Usuario alvo,
+            UsuarioResponse antes,
+            UsuarioResponse depois,
+            boolean novoStatus,
+            AuditoriaContext auditoriaContext
+    ) {
+        String acao = novoStatus
+                ? ACAO_USUARIO_ATIVADO
+                : ACAO_USUARIO_DESATIVADO;
+
+        registrarAuditoriaUsuarioAposCommit(
+                autor,
+                alvo,
+                acao,
+                antes,
+                depois,
+                auditoriaContext
+        );
+    }
+
+    private void registrarSoftDeleteAposCommit(
+            Usuario autor,
+            Usuario alvo,
+            UsuarioResponse antes,
+            UsuarioResponse depois,
+            AuditoriaContext auditoriaContext
+    ) {
+        registrarAuditoriaUsuarioAposCommit(
+                autor,
+                alvo,
+                ACAO_USUARIO_DELETADO,
+                antes,
+                depois,
+                auditoriaContext
+        );
+    }
+
+    private void registrarAuditoriaUsuarioAposCommit(
+            Usuario autor,
+            Usuario alvo,
+            String acao,
+            UsuarioResponse antes,
+            UsuarioResponse depois,
+            AuditoriaContext auditoriaContext
+    ) {
+        AuditoriaContext contexto = auditoriaContext != null
+                ? auditoriaContext
+                : AuditoriaContext.vazio();
+
+        LogAuditoria entrada = LogAuditoria.builder()
+                .usuarioId(autor.getId())
+                .acao(acao)
+                .entidade(ENTIDADE_USUARIOS)
+                .entidadeId(alvo.getId())
+                .dadosAntes(auditoriaHelper.serializarSeguro(antes))
+                .dadosDepois(auditoriaHelper.serializarSeguro(depois))
+                .ip(contexto.ip())
+                .userAgent(contexto.userAgent())
+                .build();
+
+        auditoriaHelper.executarAposCommit(() -> auditoriaService.registrar(entrada));
     }
 
     private boolean mesmoUsuario(Usuario usuarioA, Usuario usuarioB) {

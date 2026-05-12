@@ -1,5 +1,6 @@
 package com.infinitygraff.api.usuario.controller;
 
+import com.infinitygraff.api.auditoria.service.AuditoriaHelper;
 import com.infinitygraff.api.common.response.ApiResponse;
 import com.infinitygraff.api.common.response.PageResponse;
 import com.infinitygraff.api.usuario.dto.AtualizarStatusRequest;
@@ -62,6 +63,7 @@ public class UsuarioController {
             "^(nome|email|role|ativo|criadoEm|atualizadoEm)(,([aA][sS][cC]|[dD][eE][sS][cC]))?$";
 
     private final UsuarioService usuarioService;
+    private final AuditoriaHelper auditoriaHelper;
 
     /**
      * Lista usuários com paginação, ordenação e filtros opcionais.
@@ -139,6 +141,8 @@ public class UsuarioController {
      *
      * <p>ADMIN pode alterar usuários conforme regras do service.
      * GERENTE pode alterar apenas CLIENTE e PRESTADOR.
+     *
+     * <p>Quando há alteração real de status, o service registra auditoria com IP e User-Agent.
      */
     @PatchMapping("/{id}/status")
     public ResponseEntity<ApiResponse<UsuarioResponse>> atualizarStatus(
@@ -146,7 +150,11 @@ public class UsuarioController {
             @Valid @RequestBody AtualizarStatusRequest request,
             HttpServletRequest httpRequest
     ) {
-        UsuarioResponse response = usuarioService.atualizarStatus(id, request);
+        UsuarioResponse response = usuarioService.atualizarStatus(
+                id,
+                request,
+                auditoriaHelper.criarContexto(httpRequest)
+        );
 
         String mensagem = Boolean.TRUE.equals(request.ativo())
                 ? "Usuário ativado com sucesso"
@@ -166,12 +174,19 @@ public class UsuarioController {
      *
      * <p>Não remove fisicamente o registro do banco.
      * Retorna {@code 204 No Content}, portanto não usa {@code ApiResponse}.
+     *
+     * <p>Quando o soft delete é aplicado com sucesso, o service registra auditoria com IP e User-Agent.
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> aplicarSoftDelete(
-            @PathVariable UUID id
+            @PathVariable UUID id,
+            HttpServletRequest httpRequest
     ) {
-        usuarioService.aplicarSoftDelete(id);
+        usuarioService.aplicarSoftDelete(
+                id,
+                auditoriaHelper.criarContexto(httpRequest)
+        );
+
         return ResponseEntity.noContent().build();
     }
 
