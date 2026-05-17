@@ -93,17 +93,8 @@ app:
   version: ${APP_VERSION:1.0.0}
   env: ${APP_ENV:development}
   admin:
-    # Usado apenas pelo AdminSeeder quando SPRING_PROFILES_ACTIVE=development.
-    #
-    # IMPORTANTE:
-    # O backend NÃO cria login, senha ou usuário no Supabase Auth.
-    # O usuário admin precisa existir primeiro no Supabase Auth.
-    # Aqui informamos apenas o UUID, e-mail e nome para criar o perfil interno ADMIN
-    # na tabela usuarios, caso ainda não exista nenhum ADMIN.
-    
-    user-id: ${ADMIN_INITIAL_USER_ID:}
     email: ${ADMIN_INITIAL_EMAIL:}
-    name: ${ADMIN_INITIAL_NAME:Administrador}
+    password: ${ADMIN_INITIAL_PASSWORD:}
 
 # ===== Logging =====
 logging:

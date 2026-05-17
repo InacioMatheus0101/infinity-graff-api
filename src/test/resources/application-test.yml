@@ -1,0 +1,88 @@
+# =============================================
+# INFINITY GRAFF API — Configuração de Testes
+# Usado com @ActiveProfiles("test")
+# =============================================
+# ATENÇÃO:
+# Este arquivo não deve conter segredos reais.
+# Todos os valores aqui são fake, para testes locais apenas.
+# =============================================
+
+spring:
+  application:
+    name: infinity-graff-api-test
+
+  # ===== Banco de Dados =====
+  # URL de fallback — sobrescrita pelo @DynamicPropertySource em BaseIntegrationTest.
+  # Não deve ser usada diretamente em testes de integração com Testcontainers.
+  datasource:
+    url: jdbc:postgresql://localhost:5432/infinity_graff_test
+    username: test
+    password: test
+    driver-class-name: org.postgresql.Driver
+
+  # ===== JPA / Hibernate =====
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+
+  # ===== Flyway =====
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  # ===== SQL Init =====
+  sql:
+    init:
+      mode: never
+
+  # ===== Jackson =====
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+# ===== Swagger / OpenAPI =====
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+# ===== Supabase Auth =====
+# Valores fake para satisfazer @NotBlank do SupabaseAuthProperties.
+# O JwtAuthenticationFilter não é acionado nos testes unitários.
+# Nos testes de integração, a autenticação é simulada via @WithMockUsuario.
+supabase:
+  auth:
+    project-url: https://test.supabase.co
+    issuer: https://test.supabase.co/auth/v1
+    audience: authenticated
+    jwks-url: https://test.supabase.co/auth/v1/.well-known/jwks.json
+
+# ===== CORS =====
+# Prefixo correto para CorsProperties(@ConfigurationProperties(prefix = "cors"))
+cors:
+  allowed-origins: http://localhost:3000
+
+# ===== Configurações da Aplicação =====
+app:
+  version: 1.0.0-test
+  env: DEVELOPMENT
+  admin:
+    email: "admin.test@infinitygraff.com"
+    password: "senha-fake-apenas-para-testes"
+
+# ===== Logging =====
+logging:
+  level:
+    root: WARN
+    com.infinitygraff.api: WARN
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+    org.flywaydb: WARN

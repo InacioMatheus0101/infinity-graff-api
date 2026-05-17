@@ -30,7 +30,7 @@ import java.util.UUID;
  *
  * <p>Deve ser chamado após a operação principal persistir com sucesso.
  *
- * <p><b>Consulta:</b> apenas ADMIN deve consultar logs de auditoria.
+ * <p><b>Consulta:</b> ADMIN e GERENTE podem consultar logs de auditoria.
  */
 @Slf4j
 @Service
@@ -71,7 +71,7 @@ public class AuditoriaService {
     /**
      * Lista logs de auditoria paginados com filtros opcionais.
      *
-     * <p>Apenas ADMIN pode consultar logs.
+     * <p>ADMIN e GERENTE podem consultar logs.
      *
      * <p>Ordenação fixa: mais recentes primeiro ({@code criado_em DESC}).
      * A ordenação do {@code Pageable} recebido é ignorada para manter
@@ -107,16 +107,16 @@ public class AuditoriaService {
         );
     }
 
-   private void validarPermissaoConsultaAuditoria() {
-    Usuario autenticado = securityContextHelper.obterUsuarioAutenticado();
+    private void validarPermissaoConsultaAuditoria() {
+        Usuario autenticado = securityContextHelper.obterUsuarioAutenticado();
 
-    if (autenticado.getRole() != Role.ADMIN
-            && autenticado.getRole() != Role.GERENTE) {
-        throw new AcessoNegadoException(
-                "Apenas ADMIN e GERENTE podem consultar logs de auditoria"
-        );
+        if (autenticado.getRole() != Role.ADMIN
+                && autenticado.getRole() != Role.GERENTE) {
+            throw new AcessoNegadoException(
+                    "Apenas ADMIN e GERENTE podem consultar logs de auditoria"
+            );
+        }
     }
-}
 
     private void validarIntervaloDatas(
             OffsetDateTime inicio,
