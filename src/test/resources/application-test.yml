@@ -47,13 +47,6 @@ spring:
       write-dates-as-timestamps: false
     time-zone: UTC
 
-# ===== Swagger / OpenAPI =====
-springdoc:
-  api-docs:
-    enabled: false
-  swagger-ui:
-    enabled: false
-
 # ===== Supabase Auth =====
 # Valores fake para satisfazer @NotBlank do SupabaseAuthProperties.
 # O JwtAuthenticationFilter não é acionado nos testes unitários.

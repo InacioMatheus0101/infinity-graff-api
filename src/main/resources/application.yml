@@ -52,20 +52,6 @@ spring:
       write-dates-as-timestamps: false
     time-zone: UTC
 
-# ===== Swagger / OpenAPI =====
-# Em production, SWAGGER_ENABLED deve ser false.
-springdoc:
-  api-docs:
-    enabled: ${SWAGGER_ENABLED:true}
-    path: /v3/api-docs
-  swagger-ui:
-    enabled: ${SWAGGER_ENABLED:true}
-    path: /swagger-ui.html
-    tags-sorter: alpha
-    operations-sorter: alpha
-    # Remove a URL padrão de exemplo do Swagger UI.
-    # Não desabilita o botão "Try it out".
-    disable-swagger-default-url: true
 
 # ===== Supabase Auth =====
 # O Supabase Auth é responsável por cadastro, login, sessão e refresh token.
