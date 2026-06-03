@@ -62,6 +62,10 @@ supabase:
     issuer: ${SUPABASE_ISSUER}
     audience: ${SUPABASE_AUDIENCE:authenticated}
     jwks-url: ${SUPABASE_JWKS_URL}
+  storage:
+    url: ${SUPABASE_PROJECT_URL}/storage/v1
+    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY}
+    bucket-solicitacoes: ${SUPABASE_BUCKET_SOLICITACOES}
 
 # ===== CORS =====
 cors:
@@ -89,3 +93,8 @@ logging:
     org.springframework.security: WARN
     org.hibernate.SQL: WARN
     org.flywaydb: INFO
+
+    spring:
+  servlet:
+    multipart:
+      max-file-size: 21MB   # permite a entrada, a validação de 20 MB será feita pelo nosso código
